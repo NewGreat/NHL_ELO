@@ -1,0 +1,76 @@
+# This spider crawls the NHL League Schedule page.
+
+from datetime import datetime
+import re
+
+from scrapy.selector import Selector
+from scrapy.contrib.spiders import CrawlSpider
+from scrapy.contrib.loader import ItemLoader
+from scrapy.contrib.loader.processor import Join, MapCompose
+
+from playoffs.items import *
+
+
+# This spider grabs most classic stats from the 'Summary' pages.
+
+class ScheduleSpider(CrawlSpider):
+    # define class variables
+    name = "schedule"
+    allowed_domains = ["nhl.com"]
+    start_urls = []
+
+    def __init__(self, season="", *args, **kwargs):
+        super(ScheduleSpider, self).__init__(*args, **kwargs)
+
+        # allows the passing of the command line argument to parse_item method
+        self.year = int(season)
+
+        self.start_urls = [
+            "http://www.nhl.com/ice/schedulebyseason.htm"
+            "?season={0}{1}&gameType=2&team=&network=&venue=".format(self.year - 1, self.year)]
+
+    def parse(self, response):
+        sel = Selector(response)
+
+        # collect xpaths of each team (row in table)
+        rows = sel.xpath('/html//div[@class="contentBlock"]/table/tbody/tr')
+
+        # loop through teams
+        for row in rows:
+            if row.xpath('td[2]/a[1]/@rel').extract():
+                loader = ItemLoader(PlayoffsItem(), selector=row)
+                loader.default_input_processor = MapCompose()
+                loader.default_output_processor = Join()
+
+                # add season and date
+                loader.add_value('season', str(self.year))
+                date = datetime.strptime(row.xpath('td[1]/div[1]/text()').extract()[0][4:], '%b %d, %Y').date()
+                loader.add_value('date', str(date))
+
+                # get team identifiers
+                away = row.xpath('td[2]/a[1]/@rel').extract()[0]
+                loader.add_value('away', away)
+                home = row.xpath('td[3]/a[1]/@rel').extract()[0]
+                loader.add_value('home', home)
+
+                # collect and parse results
+                away_score = row.xpath('td[5]/span[1]/text()').extract()[0].replace('\n', '').strip()
+                match = re.search('\(.*?\)', away_score)
+                loader.add_value('away_score', match.group(0)[1:-1])
+                home_score = row.xpath('td[5]/span[2]/text()').extract()[0].replace('\n', '').strip()
+                match = re.search('\(.*?\)', home_score)
+                loader.add_value('home_score', match.group(0)[1:-1])
+                match = re.search('\).*', home_score)
+                result = match.group(0)[1:]
+                if result == 'S/O':
+                    output = 'SO'
+                elif result == 'OT':
+                    output = 'OT'
+                else:
+                    output = 'REG'
+                loader.add_value('result', output)
+
+                # feed item to pipeline
+                yield loader.load_item()
+            else:
+                pass
