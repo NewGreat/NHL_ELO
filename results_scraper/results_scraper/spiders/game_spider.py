@@ -8,7 +8,7 @@ from scrapy.contrib.spiders import CrawlSpider
 from scrapy.contrib.loader import ItemLoader
 from scrapy.contrib.loader.processor import Join, MapCompose
 
-from playoffs.items import *
+from results_scraper.items import *
 
 
 # This spider grabs most classic stats from the 'Summary' pages.
